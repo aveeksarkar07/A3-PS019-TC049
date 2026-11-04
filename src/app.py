@@ -1,12 +1,16 @@
+
 import streamlit as st
 import pandas as pd
 import tempfile
 import os
 from io import BytesIO
 
+from detector import detect_pii, mask_pii
+from file_reader import read_file
+
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.platypus import (
     SimpleDocTemplate,
@@ -16,29 +20,28 @@ from reportlab.platypus import (
     TableStyle
 )
 
-from detector import detect_pii, mask_pii
-from file_reader import read_file
-def generate_pdf_report(report, total, high, medium, low):
+
+# ---------------- PDF REPORT GENERATOR ----------------
+
+def generate_pdf_report(report, file_summary, total, occurrences,
+                        high, medium, low):
 
     buffer = BytesIO()
 
     document = SimpleDocTemplate(
         buffer,
         pagesize=landscape(A4),
-        rightMargin=15 * mm,
-        leftMargin=15 * mm,
-        topMargin=15 * mm,
-        bottomMargin=15 * mm
+        rightMargin=12 * mm,
+        leftMargin=12 * mm,
+        topMargin=12 * mm,
+        bottomMargin=12 * mm
     )
 
     styles = getSampleStyleSheet()
     elements = []
 
     elements.append(
-        Paragraph(
-            "TEAM EQUINOX",
-            styles["Title"]
-        )
+        Paragraph("TEAM EQUINOX", styles["Title"])
     )
 
     elements.append(
@@ -50,18 +53,32 @@ def generate_pdf_report(report, total, high, medium, low):
 
     elements.append(Spacer(1, 8 * mm))
 
+    # Overall summary
+
     elements.append(
-        Paragraph("SCAN SUMMARY", styles["Heading2"])
+        Paragraph("OVERALL SCAN SUMMARY", styles["Heading2"])
     )
 
     summary_data = [
-        ["Total Findings", "High Risk", "Medium Risk", "Low Risk"],
-        [str(total), str(high), str(medium), str(low)]
+        [
+            "Unique Findings",
+            "Total Occurrences",
+            "High Risk",
+            "Medium Risk",
+            "Low Risk"
+        ],
+        [
+            str(total),
+            str(occurrences),
+            str(high),
+            str(medium),
+            str(low)
+        ]
     ]
 
     summary_table = Table(
         summary_data,
-        colWidths=[60 * mm] * 4
+        colWidths=[50 * mm] * 5
     )
 
     summary_table.setStyle(TableStyle([
@@ -71,35 +88,84 @@ def generate_pdf_report(report, total, high, medium, low):
         ("TEXTCOLOR", (0, 1), (-1, -1), colors.black),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
         ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-        ("PADDING", (0, 0), (-1, -1), 10)
+        ("PADDING", (0, 0), (-1, -1), 7)
     ]))
 
     elements.append(summary_table)
-    elements.append(Spacer(1, 10 * mm))
+    elements.append(Spacer(1, 8 * mm))
+
+    # File-wise summary
+
+    elements.append(
+        Paragraph("FILE-WISE RISK SUMMARY", styles["Heading2"])
+    )
+
+    file_data = [[
+        "File Name",
+        "Unique Findings",
+        "Occurrences",
+        "High",
+        "Medium",
+        "Low"
+    ]]
+
+    for _, row in file_summary.iterrows():
+        file_data.append([
+            str(row["File Name"]),
+            str(row["Unique Findings"]),
+            str(row["Occurrences"]),
+            str(row["High Risk"]),
+            str(row["Medium Risk"]),
+            str(row["Low Risk"])
+        ])
+
+    file_table = Table(
+        file_data,
+        repeatRows=1,
+        colWidths=[85 * mm, 35 * mm, 35 * mm, 25 * mm, 25 * mm, 25 * mm]
+    )
+
+    file_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#172554")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("ALIGN", (1, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("PADDING", (0, 0), (-1, -1), 6),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1),
+         [colors.white, colors.HexColor("#E8EEF8")])
+    ]))
+
+    elements.append(file_table)
+    elements.append(Spacer(1, 8 * mm))
+
+    # Evidence inventory
 
     elements.append(
         Paragraph("PRIVACY EVIDENCE INVENTORY", styles["Heading2"])
     )
 
-    table_data = [[
+    evidence_data = [[
         "File Name",
         "PII Category",
         "Masked Value",
-        "Risk Level"
+        "Risk Level",
+        "Occurrences"
     ]]
 
     for _, row in report.iterrows():
-        table_data.append([
+        evidence_data.append([
             str(row["File Name"]),
             str(row["PII Category"]),
             str(row["Masked Value"]),
-            str(row["Risk Level"])
+            str(row["Risk Level"]),
+            str(row["Occurrences"])
         ])
 
     evidence_table = Table(
-        table_data,
+        evidence_data,
         repeatRows=1,
-        colWidths=[65 * mm, 65 * mm, 65 * mm, 35 * mm]
+        colWidths=[55 * mm, 50 * mm, 80 * mm, 30 * mm, 25 * mm]
     )
 
     evidence_table.setStyle(TableStyle([
@@ -107,7 +173,8 @@ def generate_pdf_report(report, total, high, medium, low):
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("PADDING", (0, 0), (-1, -1), 7),
+        ("ALIGN", (4, 0), (4, -1), "CENTER"),
+        ("PADDING", (0, 0), (-1, -1), 6),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1),
          [colors.white, colors.HexColor("#E8EEF8")])
     ]))
@@ -128,6 +195,7 @@ def generate_pdf_report(report, total, high, medium, low):
     buffer.seek(0)
     return buffer.getvalue()
 
+
 # ---------------- PAGE CONFIG ----------------
 
 st.set_page_config(
@@ -135,6 +203,7 @@ st.set_page_config(
     page_icon="🔐",
     layout="wide"
 )
+
 
 # ---------------- CUSTOM DESIGN ----------------
 
@@ -211,9 +280,9 @@ st.write(
 )
 
 st.info(
-    "Privacy note: Files are processed for this scan. "
-    "Findings are displayed in masked form. Detection results "
-    "are pattern matches, not official identity verification."
+    "Privacy note: Findings are displayed in masked form. "
+    "Detection results are pattern matches, not official identity "
+    "verification. Use fictional data for testing."
 )
 
 
@@ -256,6 +325,7 @@ if uploaded_files:
                 findings = detect_pii(text)
 
                 for item in findings:
+
                     results.append({
                         "File Name": uploaded_file.name,
                         "PII Category": item["type"],
@@ -263,7 +333,8 @@ if uploaded_files:
                             item["value"],
                             item["type"]
                         ),
-                        "Risk Level": item["risk"]
+                        "Risk Level": item["risk"],
+                        "Match Key": item["value"]
                     })
 
             except Exception as e:
@@ -278,114 +349,265 @@ if uploaded_files:
     for error in errors:
         st.warning(f"Could not read {error}")
 
-    report = pd.DataFrame(
-        results,
-        columns=[
-            "File Name",
-            "PII Category",
-            "Masked Value",
-            "Risk Level"
-        ]
-    )
+    # ---------------- GROUP DUPLICATES ----------------
+
+    report = pd.DataFrame(results)
+
+    if not report.empty:
+
+        report = (
+            report.groupby(
+                [
+                    "File Name",
+                    "PII Category",
+                    "Masked Value",
+                    "Risk Level",
+                    "Match Key"
+                ],
+                as_index=False
+            )
+            .size()
+            .rename(columns={"size": "Occurrences"})
+        )
+
+        report = report.drop(columns=["Match Key"])
+
+    else:
+
+        report = pd.DataFrame(
+            columns=[
+                "File Name",
+                "PII Category",
+                "Masked Value",
+                "Risk Level",
+                "Occurrences"
+            ]
+        )
 
     st.success(
         f"Scan completed: {len(uploaded_files)} file(s) processed."
     )
 
-    # ---------------- OVERVIEW ----------------
+    # ---------------- OVERALL SUMMARY ----------------
 
     st.divider()
-    st.header("📊 Scan Overview")
+    st.header("📊 Overall Scan Overview")
 
-    total = len(results)
+    total = len(report)
 
-    high = sum(
-        item["Risk Level"] == "High"
-        for item in results
+    occurrences = (
+        int(report["Occurrences"].sum())
+        if not report.empty else 0
     )
 
-    medium = sum(
-        item["Risk Level"] == "Medium"
-        for item in results
-    )
+    high = int((report["Risk Level"] == "High").sum())
+    medium = int((report["Risk Level"] == "Medium").sum())
+    low = int((report["Risk Level"] == "Low").sum())
 
-    low = sum(
-        item["Risk Level"] == "Low"
-        for item in results
-    )
+    col1, col2, col3, col4, col5 = st.columns(5)
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Unique Findings", total)
+    col2.metric("Total Occurrences", occurrences)
+    col3.metric("🔴 High Risk", high)
+    col4.metric("🟠 Medium Risk", medium)
+    col5.metric("🟢 Low Risk", low)
 
-    col1.metric("Total Findings", total)
-    col2.metric("🔴 High Risk", high)
-    col3.metric("🟠 Medium Risk", medium)
-    col4.metric("🟢 Low Risk", low)
+    # ---------------- FILE-WISE SUMMARY ----------------
 
-    # ---------------- RESULTS ----------------
+    st.divider()
+    st.header("📁 File-wise Risk Summary")
+
+    if not report.empty:
+
+        file_summary = (
+            report.groupby("File Name")
+            .agg(
+                **{
+                    "Unique Findings": ("PII Category", "count"),
+                    "Occurrences": ("Occurrences", "sum"),
+                    "High Risk": (
+                        "Risk Level",
+                        lambda x: (x == "High").sum()
+                    ),
+                    "Medium Risk": (
+                        "Risk Level",
+                        lambda x: (x == "Medium").sum()
+                    ),
+                    "Low Risk": (
+                        "Risk Level",
+                        lambda x: (x == "Low").sum()
+                    )
+                }
+            )
+            .reset_index()
+        )
+
+        st.dataframe(
+            file_summary,
+            use_container_width=True,
+            hide_index=True
+        )
+
+    else:
+
+        file_summary = pd.DataFrame(
+            columns=[
+                "File Name",
+                "Unique Findings",
+                "Occurrences",
+                "High Risk",
+                "Medium Risk",
+                "Low Risk"
+            ]
+        )
+
+        st.info("No findings available for the file-wise summary.")
+
+    # ---------------- RISK DISTRIBUTION ----------------
 
     if not report.empty:
 
         st.divider()
-        st.header("📈 PII Distribution")
+        st.header("📈 Risk Distribution")
+
+        risk_counts = (
+            report["Risk Level"]
+            .value_counts()
+            .reindex(["High", "Medium", "Low"], fill_value=0)
+            .rename_axis("Risk Level")
+            .reset_index(name="Unique Findings")
+        )
+
+        st.bar_chart(
+            risk_counts,
+            x="Risk Level",
+            y="Unique Findings"
+        )
+
+        st.header("📊 PII Category Distribution")
 
         category_counts = (
             report["PII Category"]
             .value_counts()
             .rename_axis("Category")
-            .reset_index(name="Count")
+            .reset_index(name="Unique Findings")
         )
 
         st.bar_chart(
             category_counts,
             x="Category",
-            y="Count"
+            y="Unique Findings"
         )
 
-        st.divider()
-        st.header("📋 Privacy Evidence Inventory")
+    # ---------------- SEARCHABLE INVENTORY ----------------
+
+    st.divider()
+    st.header("📋 Privacy Evidence Inventory")
+
+    if not report.empty:
+
+        st.caption(
+            "Duplicate findings within the same file are grouped. "
+            "Raw matching values are not included in this inventory."
+        )
+
+        search_text = st.text_input(
+            "🔎 Search evidence",
+            placeholder="Search file name, category or risk level..."
+        )
+
+        filtered_report = report.copy()
+
+        if search_text:
+            search_columns = [
+                "File Name",
+                "PII Category",
+                "Risk Level"
+            ]
+
+            mask = filtered_report[search_columns].apply(
+                lambda column: column.astype(str).str.contains(
+                    search_text,
+                    case=False,
+                    na=False
+                )
+            ).any(axis=1)
+
+            filtered_report = filtered_report[mask]
 
         st.dataframe(
-            report,
+            filtered_report,
             use_container_width=True,
             hide_index=True
         )
 
-        # ---------------- DOWNLOAD ----------------
+        st.caption(
+            f"Showing {len(filtered_report)} of {len(report)} unique findings."
+        )
 
-        st.divider()
-        st.header("📥 Export Report")
+    # ---------------- EXPORT REPORTS ----------------
+
+    st.divider()
+    st.header("📥 Export Reports")
+
+    if not report.empty:
+
+        csv_buffer = BytesIO()
+
+        with pd.ExcelWriter(csv_buffer, engine="openpyxl") as writer:
+            report.to_excel(
+                writer,
+                sheet_name="Evidence Inventory",
+                index=False
+            )
+
+            file_summary.to_excel(
+                writer,
+                sheet_name="File-wise Summary",
+                index=False
+            )
+
+        st.download_button(
+            label="Download Excel Report",
+            data=csv_buffer.getvalue(),
+            file_name="team_equinox_privacy_report.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
         csv_report = report.to_csv(
             index=False
         ).encode("utf-8")
 
         st.download_button(
-            label="Download Privacy Report (CSV)",
+            label="Download CSV Report",
             data=csv_report,
             file_name="team_equinox_privacy_report.csv",
             mime="text/csv"
         )
+
         pdf_report = generate_pdf_report(
             report,
+            file_summary,
             total,
+            occurrences,
             high,
             medium,
             low
         )
 
         st.download_button(
-            label="Download Privacy Report (PDF)",
+            label="Download PDF Report",
             data=pdf_report,
             file_name="team_equinox_privacy_report.pdf",
             mime="application/pdf"
         )
 
     else:
-        st.info(
-            "No supported personal information patterns were detected."
-        )
+
+        st.info("No findings available to export.")
 
 else:
+
     st.markdown("""
     ### 🚀 Ready to scan
 
