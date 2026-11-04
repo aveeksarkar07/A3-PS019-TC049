@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import tempfile
@@ -8,70 +7,155 @@ from detector import detect_pii, mask_pii
 from file_reader import read_file
 
 
+# ---------------- PAGE CONFIG ----------------
+
 st.set_page_config(
-    page_title="Team Equinox | Privacy Scanner",
+    page_title="Equinox | Privacy Scanner",
     page_icon="🔐",
     layout="wide"
 )
 
-st.title("🔐 Personal Data Discovery")
-st.subheader("Privacy Evidence Inventory")
-st.caption("Team Equinox | AIORI-3 Hackathon")
+# ---------------- CUSTOM DESIGN ----------------
+
+st.markdown("""
+<style>
+.stApp {
+    background-color: #0b1020;
+    color: #f1f5f9;
+}
+
+.block-container {
+    padding-top: 2rem;
+    padding-bottom: 3rem;
+}
+
+.hero {
+    padding: 30px;
+    border-radius: 18px;
+    background: linear-gradient(120deg, #172554, #312e81);
+    border: 1px solid #3730a3;
+    margin-bottom: 25px;
+}
+
+.hero h1 {
+    color: white;
+    font-size: 36px;
+    margin-bottom: 8px;
+}
+
+.hero p {
+    color: #c7d2fe;
+    font-size: 16px;
+}
+
+div[data-testid="stMetric"] {
+    background: #151d32;
+    border: 1px solid #26334f;
+    padding: 18px;
+    border-radius: 12px;
+}
+
+div[data-testid="stMetricLabel"] {
+    color: #cbd5e1;
+}
+
+div[data-testid="stMetricValue"] {
+    color: white;
+}
+
+h2, h3 {
+    color: #e2e8f0;
+}
+
+.stButton button {
+    border-radius: 8px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+# ---------------- HEADER ----------------
+
+st.markdown("""
+<div class="hero">
+    <h1>🔐 EQUINOX</h1>
+    <p>Personal Data Discovery & Privacy Evidence Inventory</p>
+    <p>AIORI-3 Hackathon | Team Equinox</p>
+</div>
+""", unsafe_allow_html=True)
 
 st.write(
-    "Upload multiple files to discover, classify "
-    "and review personal information."
+    "Discover, classify and review potential personal "
+    "information across multiple digital files."
 )
 
-# Multiple file upload
+st.info(
+    "Privacy note: Files are processed for this scan. "
+    "Findings are displayed in masked form. Detection results "
+    "are pattern matches, not official identity verification."
+)
+
+
+# ---------------- FILE UPLOAD ----------------
+
+st.header("📂 Upload Documents")
+
 uploaded_files = st.file_uploader(
-    "Upload TXT, CSV, PDF or DOCX files",
+    "Choose TXT, CSV, PDF or DOCX files",
     type=["txt", "csv", "pdf", "docx"],
     accept_multiple_files=True
 )
 
+
+# ---------------- SCANNING ----------------
+
 if uploaded_files:
 
     results = []
+    errors = []
 
-    for uploaded_file in uploaded_files:
+    with st.spinner("Scanning your documents..."):
 
-        temp_path = None
+        for uploaded_file in uploaded_files:
 
-        try:
-            suffix = "." + uploaded_file.name.split(".")[-1].lower()
+            temp_path = None
 
-            with tempfile.NamedTemporaryFile(
-                delete=False,
-                suffix=suffix
-            ) as temp_file:
+            try:
+                suffix = "." + uploaded_file.name.split(".")[-1].lower()
 
-                temp_file.write(uploaded_file.getvalue())
-                temp_path = temp_file.name
+                with tempfile.NamedTemporaryFile(
+                    delete=False,
+                    suffix=suffix
+                ) as temp_file:
 
-            text = read_file(temp_path)
+                    temp_file.write(uploaded_file.getvalue())
+                    temp_path = temp_file.name
 
-            findings = detect_pii(text)
+                text = read_file(temp_path)
+                findings = detect_pii(text)
 
-            for item in findings:
-                results.append({
-                    "File Name": uploaded_file.name,
-                    "PII Category": item["type"],
-                    "Masked Value": mask_pii(
-                        item["value"],
-                        item["type"]
-                    ),
-                    "Risk Level": item["risk"]
-                })
+                for item in findings:
+                    results.append({
+                        "File Name": uploaded_file.name,
+                        "PII Category": item["type"],
+                        "Masked Value": mask_pii(
+                            item["value"],
+                            item["type"]
+                        ),
+                        "Risk Level": item["risk"]
+                    })
 
-        except Exception as e:
-            st.warning(
-                f"Could not read {uploaded_file.name}: {e}"
-            )
+            except Exception as e:
+                errors.append(
+                    f"{uploaded_file.name}: {e}"
+                )
 
-        finally:
-            if temp_path and os.path.exists(temp_path):
-                os.unlink(temp_path)
+            finally:
+                if temp_path and os.path.exists(temp_path):
+                    os.unlink(temp_path)
+
+    for error in errors:
+        st.warning(f"Could not read {error}")
 
     report = pd.DataFrame(
         results,
@@ -84,41 +168,43 @@ if uploaded_files:
     )
 
     st.success(
-        f"Scanned {len(uploaded_files)} uploaded file(s)."
+        f"Scan completed: {len(uploaded_files)} file(s) processed."
     )
 
-    # Summary
+    # ---------------- OVERVIEW ----------------
+
+    st.divider()
+    st.header("📊 Scan Overview")
+
     total = len(results)
 
     high = sum(
-        1 for item in results
-        if item["Risk Level"] == "High"
+        item["Risk Level"] == "High"
+        for item in results
     )
 
     medium = sum(
-        1 for item in results
-        if item["Risk Level"] == "Medium"
+        item["Risk Level"] == "Medium"
+        for item in results
     )
 
     low = sum(
-        1 for item in results
-        if item["Risk Level"] == "Low"
+        item["Risk Level"] == "Low"
+        for item in results
     )
-
-    st.header("📊 Scan Overview")
 
     col1, col2, col3, col4 = st.columns(4)
 
     col1.metric("Total Findings", total)
-    col2.metric("High Risk", high)
-    col3.metric("Medium Risk", medium)
-    col4.metric("Low Risk", low)
+    col2.metric("🔴 High Risk", high)
+    col3.metric("🟠 Medium Risk", medium)
+    col4.metric("🟢 Low Risk", low)
+
+    # ---------------- RESULTS ----------------
 
     if not report.empty:
 
         st.divider()
-
-        # Chart
         st.header("📈 PII Distribution")
 
         category_counts = (
@@ -135,8 +221,6 @@ if uploaded_files:
         )
 
         st.divider()
-
-        # Evidence inventory
         st.header("📋 Privacy Evidence Inventory")
 
         st.dataframe(
@@ -145,13 +229,17 @@ if uploaded_files:
             hide_index=True
         )
 
-        # CSV download
+        # ---------------- DOWNLOAD ----------------
+
+        st.divider()
+        st.header("📥 Export Report")
+
         csv_report = report.to_csv(
             index=False
         ).encode("utf-8")
 
         st.download_button(
-            label="📥 Download Combined Privacy Report",
+            label="Download Privacy Report (CSV)",
             data=csv_report,
             file_name="team_equinox_privacy_report.csv",
             mime="text/csv"
@@ -159,6 +247,16 @@ if uploaded_files:
 
     else:
         st.info(
-            "No supported personal information was detected "
-            "in the uploaded files."
+            "No supported personal information patterns were detected."
         )
+
+else:
+    st.markdown("""
+    ### 🚀 Ready to scan
+
+    Upload one or more supported documents to begin.
+
+    **Supported formats:** TXT · CSV · PDF · DOCX
+
+    Your privacy evidence inventory will appear here after scanning.
+    """)
