@@ -73,16 +73,38 @@ def detect_pii(text):
     # Detect existing and new pattern-based categories
     for pii_type, pattern in patterns.items():
 
-        matches = re.findall(
+        matches = re.finditer(
             pattern,
             text,
             re.IGNORECASE
         )
 
         for match in matches:
+
+            value = match.group()
+
+            line_start = text.rfind("\n", 0, match.start()) + 1
+            nearby_text = text[line_start:match.start()]
+
+            if pii_type == "Indian PIN Code":
+                if not re.search(
+                    r"\b(?:PIN|postal\s*code|postcode|zip\s*code)\b\s*[:=-]?\s*$",
+                    nearby_text,
+                    re.IGNORECASE
+                ):
+                    continue
+
+            if pii_type == "Phone Number":
+                if re.search(
+                    r"\b(?:invoice|order|reference|ref|customer\s*id|tracking)\s*(?:number|no\.?|id)?\s*[:#=-]?\s*$",
+                    nearby_text,
+                    re.IGNORECASE
+                ):
+                    continue
+
             findings.append({
                 "type": pii_type,
-                "value": match,
+                "value": value,
                 "risk": get_risk_level(pii_type)
             })
 

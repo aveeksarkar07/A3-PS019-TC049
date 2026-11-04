@@ -2,10 +2,131 @@ import streamlit as st
 import pandas as pd
 import tempfile
 import os
+from io import BytesIO
+
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    Table,
+    TableStyle
+)
 
 from detector import detect_pii, mask_pii
 from file_reader import read_file
+def generate_pdf_report(report, total, high, medium, low):
 
+    buffer = BytesIO()
+
+    document = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(A4),
+        rightMargin=15 * mm,
+        leftMargin=15 * mm,
+        topMargin=15 * mm,
+        bottomMargin=15 * mm
+    )
+
+    styles = getSampleStyleSheet()
+    elements = []
+
+    elements.append(
+        Paragraph(
+            "TEAM EQUINOX",
+            styles["Title"]
+        )
+    )
+
+    elements.append(
+        Paragraph(
+            "Personal Data Discovery & Privacy Evidence Inventory",
+            styles["Heading2"]
+        )
+    )
+
+    elements.append(Spacer(1, 8 * mm))
+
+    elements.append(
+        Paragraph("SCAN SUMMARY", styles["Heading2"])
+    )
+
+    summary_data = [
+        ["Total Findings", "High Risk", "Medium Risk", "Low Risk"],
+        [str(total), str(high), str(medium), str(low)]
+    ]
+
+    summary_table = Table(
+        summary_data,
+        colWidths=[60 * mm] * 4
+    )
+
+    summary_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#172554")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#E8EEF8")),
+        ("TEXTCOLOR", (0, 1), (-1, -1), colors.black),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("PADDING", (0, 0), (-1, -1), 10)
+    ]))
+
+    elements.append(summary_table)
+    elements.append(Spacer(1, 10 * mm))
+
+    elements.append(
+        Paragraph("PRIVACY EVIDENCE INVENTORY", styles["Heading2"])
+    )
+
+    table_data = [[
+        "File Name",
+        "PII Category",
+        "Masked Value",
+        "Risk Level"
+    ]]
+
+    for _, row in report.iterrows():
+        table_data.append([
+            str(row["File Name"]),
+            str(row["PII Category"]),
+            str(row["Masked Value"]),
+            str(row["Risk Level"])
+        ])
+
+    evidence_table = Table(
+        table_data,
+        repeatRows=1,
+        colWidths=[65 * mm, 65 * mm, 65 * mm, 35 * mm]
+    )
+
+    evidence_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#172554")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("PADDING", (0, 0), (-1, -1), 7),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1),
+         [colors.white, colors.HexColor("#E8EEF8")])
+    ]))
+
+    elements.append(evidence_table)
+    elements.append(Spacer(1, 8 * mm))
+
+    elements.append(
+        Paragraph(
+            "Note: Findings are potential pattern matches, "
+            "not official identity verification.",
+            styles["Italic"]
+        )
+    )
+
+    document.build(elements)
+
+    buffer.seek(0)
+    return buffer.getvalue()
 
 # ---------------- PAGE CONFIG ----------------
 
@@ -243,6 +364,20 @@ if uploaded_files:
             data=csv_report,
             file_name="team_equinox_privacy_report.csv",
             mime="text/csv"
+        )
+        pdf_report = generate_pdf_report(
+            report,
+            total,
+            high,
+            medium,
+            low
+        )
+
+        st.download_button(
+            label="Download Privacy Report (PDF)",
+            data=pdf_report,
+            file_name="team_equinox_privacy_report.pdf",
+            mime="application/pdf"
         )
 
     else:
