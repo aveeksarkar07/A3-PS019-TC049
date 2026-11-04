@@ -1,10 +1,13 @@
+
 import csv
 from pathlib import Path
+from pypdf import PdfReader
+from docx import Document
 
 
 def read_file(file_path):
     """
-    Read TXT or CSV files and return their text content.
+    Read TXT, CSV, PDF and DOCX files.
     """
 
     path = Path(file_path)
@@ -18,7 +21,7 @@ def read_file(file_path):
     elif path.suffix.lower() == ".csv":
         rows = []
 
-        with path.open("r", encoding="utf-8", newline="") as file:
+        with path.open("r", encoding="utf-8-sig", newline="") as file:
             reader = csv.reader(file)
 
             for row in reader:
@@ -26,5 +29,21 @@ def read_file(file_path):
 
         return "\n".join(rows)
 
+    elif path.suffix.lower() == ".pdf":
+        reader = PdfReader(str(path))
+        return "\n".join(
+            page.extract_text() or ""
+            for page in reader.pages
+        )
+
+    elif path.suffix.lower() == ".docx":
+        document = Document(str(path))
+        return "\n".join(
+            paragraph.text
+            for paragraph in document.paragraphs
+        )
+
     else:
-        raise ValueError("Only TXT and CSV files are supported.")
+        raise ValueError(
+            "Only TXT, CSV, PDF and DOCX files are supported."
+        )

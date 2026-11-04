@@ -1,0 +1,8 @@
+Name: Sara
+Email: sara@example.com
+Phone: 9123456789
+PIN: 700002
+Aadhaar: 1234 5678 9012
+PAN: ABCDE1234F
+DOB: 15/08/2004
+Card: 4532015112830366

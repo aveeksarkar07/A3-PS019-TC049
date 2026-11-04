@@ -1,8 +1,12 @@
 
 import streamlit as st
 import pandas as pd
+import tempfile
+import os
 
 from detector import detect_pii, mask_pii
+from file_reader import read_file
+
 
 st.set_page_config(
     page_title="Team Equinox | Privacy Scanner",
@@ -21,8 +25,8 @@ st.write(
 
 # Multiple file upload
 uploaded_files = st.file_uploader(
-    "Upload TXT or CSV files",
-    type=["txt", "csv"],
+    "Upload TXT, CSV, PDF or DOCX files",
+    type=["txt", "csv", "pdf", "docx"],
     accept_multiple_files=True
 )
 
@@ -32,8 +36,21 @@ if uploaded_files:
 
     for uploaded_file in uploaded_files:
 
+        temp_path = None
+
         try:
-            text = uploaded_file.getvalue().decode("utf-8-sig")
+            suffix = "." + uploaded_file.name.split(".")[-1].lower()
+
+            with tempfile.NamedTemporaryFile(
+                delete=False,
+                suffix=suffix
+            ) as temp_file:
+
+                temp_file.write(uploaded_file.getvalue())
+                temp_path = temp_file.name
+
+            text = read_file(temp_path)
+
             findings = detect_pii(text)
 
             for item in findings:
@@ -47,13 +64,24 @@ if uploaded_files:
                     "Risk Level": item["risk"]
                 })
 
-        except UnicodeDecodeError:
+        except Exception as e:
             st.warning(
-                f"Could not read {uploaded_file.name}. "
-                "Please use a UTF-8 TXT or CSV file."
+                f"Could not read {uploaded_file.name}: {e}"
             )
 
-    report = pd.DataFrame(results)
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                os.unlink(temp_path)
+
+    report = pd.DataFrame(
+        results,
+        columns=[
+            "File Name",
+            "PII Category",
+            "Masked Value",
+            "Risk Level"
+        ]
+    )
 
     st.success(
         f"Scanned {len(uploaded_files)} uploaded file(s)."
@@ -106,9 +134,9 @@ if uploaded_files:
             y="Count"
         )
 
-        # Evidence inventory
         st.divider()
 
+        # Evidence inventory
         st.header("📋 Privacy Evidence Inventory")
 
         st.dataframe(
