@@ -1,0 +1,4 @@
+Name: Rahul
+Email: rahul@example.com
+Phone: 9876543210
+PIN: 700001
